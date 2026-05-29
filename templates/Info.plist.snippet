@@ -1,0 +1,28 @@
+<!-- 把以下键合并进你的 App Info.plist（<dict> 内）。 -->
+<!-- {{占位符}} 用 CONFIG.md 的实际值替换。 -->
+
+<!-- Sparkle 更新源：指向公共仓库的 appcast.xml -->
+<key>SUFeedURL</key>
+<string>{{APPCAST_URL}}</string>
+
+<!-- Sparkle EdDSA 公钥（generate_keys 打印的 base64） -->
+<key>SUPublicEDKey</key>
+<string>{{SPARKLE_PUBLIC_KEY}}</string>
+
+<!-- 启用自动后台检查 -->
+<key>SUEnableAutomaticChecks</key>
+<true/>
+
+<!-- 检查间隔（秒）。86400 = 每天一次 -->
+<key>SUScheduledCheckInterval</key>
+<integer>86400</integer>
+
+<!-- 可选：是否自动下载更新（false = 先弹窗征求同意） -->
+<key>SUAutomaticallyUpdate</key>
+<false/>
+
+<!-- 安全增强：要求 feed 本身被签名 + 解压前校验（推荐开启，CI 已配套签名） -->
+<key>SURequireSignedFeed</key>
+<true/>
+<key>SUVerifyUpdateBeforeExtraction</key>
+<true/>

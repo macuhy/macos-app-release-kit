@@ -1,0 +1,9 @@
+# 永远不要提交密钥/证书
+*.p12
+*.cer
+*.pem
+sparkle_private_key*.txt
+sparkle_key
+*.keychain*
+.env
+.DS_Store

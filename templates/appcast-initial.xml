@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 公共仓库的初始 appcast.xml。首次 CI 发布后会被自动覆盖。 -->
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>{{APP_NAME}} Updates</title>
+    <description>{{APP_NAME}} 自动更新源</description>
+    <language>zh</language>
+    <!-- 暂无发布版本；首次 git tag 发布后由 generate_appcast 填充 <item> -->
+  </channel>
+</rss>
