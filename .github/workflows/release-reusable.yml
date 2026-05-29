@@ -1,0 +1,163 @@
+# 可复用工作流（reusable workflow）。放在公共 kit 仓库即可被任意 App 私有仓库调用。
+# 调用方示例见 templates/caller-workflow.yml。
+# 密钥在【调用方】环境解析，本文件不含任何密钥，公开无风险。
+name: macOS Release (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      app_name:
+        description: "App 名称（= .app 产物名）"
+        required: true
+        type: string
+      scheme:
+        description: "Xcode scheme 名"
+        required: true
+        type: string
+      public_repo:
+        description: "公共分发仓库 owner/repo"
+        required: true
+        type: string
+      download_url_prefix:
+        description: "DMG 下载直链前缀，如 https://github.com/OWNER/REPO/releases/download/"
+        required: true
+        type: string
+      sparkle_version:
+        description: "Sparkle 工具版本"
+        required: false
+        type: string
+        default: "2.6.4"
+    secrets:
+      BUILD_CERTIFICATE_BASE64: { required: true }
+      P12_PASSWORD:             { required: true }
+      KEYCHAIN_PASSWORD:        { required: true }
+      APPLE_ID:                 { required: true }
+      APPLE_TEAM_ID:            { required: true }
+      APPLE_APP_PASSWORD:       { required: true }
+      SPARKLE_PRIVATE_KEY:      { required: true }
+      RELEASE_REPO_PAT:         { required: true }
+
+jobs:
+  release:
+    runs-on: macos-14
+    env:
+      APP_NAME: ${{ inputs.app_name }}
+      SCHEME: ${{ inputs.scheme }}
+      PUBLIC_REPO: ${{ inputs.public_repo }}
+      DOWNLOAD_URL_PREFIX: ${{ inputs.download_url_prefix }}
+      SPARKLE_VER: ${{ inputs.sparkle_version }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      # ── 1. 导入签名证书 ───────────────────────────────────────
+      - name: Import codesign certificate
+        env:
+          CERT_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          CERT_PATH="$RUNNER_TEMP/cert.p12"
+          KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
+          echo "$CERT_BASE64" | base64 --decode > "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$CERT_PATH" -k "$KEYCHAIN" -P "$P12_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          echo "SIGN_ID=$(security find-identity -v -p codesigning "$KEYCHAIN" | grep 'Developer ID Application' | head -1 | awk -F'\"' '{print $2}')" >> "$GITHUB_ENV"
+
+      # ── 2. 版本号 & build 号 ──────────────────────────────────
+      - name: Compute version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          BUILD="$(git rev-list --count HEAD)"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "BUILD=$BUILD" >> "$GITHUB_ENV"
+
+      # ── 3. 编译（Hardened Runtime） ───────────────────────────
+      - name: Build app
+        run: |
+          set -euo pipefail
+          xcodebuild -scheme "$SCHEME" -configuration Release \
+            -derivedDataPath "$RUNNER_TEMP/build" \
+            -destination 'generic/platform=macOS' \
+            MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD" \
+            CODE_SIGN_IDENTITY="$SIGN_ID" CODE_SIGN_STYLE=Manual \
+            OTHER_CODE_SIGN_FLAGS="--options=runtime --timestamp" \
+            clean build
+          echo "APP_PATH=$RUNNER_TEMP/build/Build/Products/Release/$APP_NAME.app" >> "$GITHUB_ENV"
+
+      # ── 4. 打 DMG ─────────────────────────────────────────────
+      - name: Create DMG
+        run: |
+          set -euo pipefail
+          brew install create-dmg
+          DMG="$RUNNER_TEMP/$APP_NAME-$VERSION.dmg"
+          create-dmg --volname "$APP_NAME" --window-size 540 380 \
+            --icon "$APP_NAME.app" 140 190 --app-drop-link 400 190 \
+            "$DMG" "$APP_PATH" || true
+          test -f "$DMG"
+          echo "DMG=$DMG" >> "$GITHUB_ENV"
+
+      # ── 5. 公证 + staple ──────────────────────────────────────
+      - name: Notarize & staple
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          set -euo pipefail
+          xcrun notarytool submit "$DMG" \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" --wait
+          xcrun stapler staple "$DMG"
+
+      # ── 6. Sparkle 签名 + appcast ─────────────────────────────
+      - name: Sign with Sparkle & generate appcast
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          curl -L -o "$RUNNER_TEMP/sparkle.tar.xz" \
+            "https://github.com/sparkle-project/Sparkle/releases/download/$SPARKLE_VER/Sparkle-$SPARKLE_VER.tar.xz"
+          mkdir -p "$RUNNER_TEMP/sparkle" && tar -xf "$RUNNER_TEMP/sparkle.tar.xz" -C "$RUNNER_TEMP/sparkle"
+          BIN="$RUNNER_TEMP/sparkle/bin"
+          UPDATES="$RUNNER_TEMP/updates"; mkdir -p "$UPDATES"; cp "$DMG" "$UPDATES/"
+          printf '<h2>%s</h2><p>%s</p>' "$VERSION" \
+            "$(git tag -l --format='%(contents)' "$GITHUB_REF_NAME" | head -50)" \
+            > "$UPDATES/$APP_NAME-$VERSION.html"
+          KEY_FILE="$RUNNER_TEMP/sparkle_key"
+          printf '%s' "$SPARKLE_PRIVATE_KEY" > "$KEY_FILE"
+          "$BIN/generate_appcast" --ed-key-file "$KEY_FILE" \
+            --download-url-prefix "$DOWNLOAD_URL_PREFIX$GITHUB_REF_NAME/" \
+            "$UPDATES"
+          rm -f "$KEY_FILE"
+          echo "APPCAST=$UPDATES/appcast.xml" >> "$GITHUB_ENV"
+
+      # ── 7. 发布到公共仓库 ─────────────────────────────────────
+      - name: Publish to public repo
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_REPO_PAT }}
+        run: |
+          set -euo pipefail
+          gh release create "$GITHUB_REF_NAME" "$DMG" \
+            --repo "$PUBLIC_REPO" --title "$APP_NAME $VERSION" \
+            --notes "$(git tag -l --format='%(contents)' "$GITHUB_REF_NAME")"
+          git clone "https://x-access-token:$GH_TOKEN@github.com/$PUBLIC_REPO.git" "$RUNNER_TEMP/pub"
+          cp "$APPCAST" "$RUNNER_TEMP/pub/appcast.xml"
+          cd "$RUNNER_TEMP/pub"
+          git config user.name "release-bot"
+          git config user.email "release-bot@users.noreply.github.com"
+          git add appcast.xml
+          git commit -m "release: $APP_NAME $VERSION (build $BUILD)" || echo "no changes"
+          git push

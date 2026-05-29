@@ -12,13 +12,17 @@ App 内嵌 Sparkle，自动弹窗提示最新版本。仅适配 macOS。
 ```
 macos-app-release-kit/
 ├── CONFIG.md                  ← 先填这里（唯一变量来源）
+├── .github/workflows/
+│   └── release-reusable.yml   ← 可复用工作流（多 App 共用一份逻辑）
 ├── docs/
 │   ├── 01-初始化仓库.md        ← 创建私有/公共两个仓库
 │   ├── 02-环境变量与密钥.md     ← 生成证书、密钥、PAT，设置 Secrets
 │   ├── 03-配置发布流程.md       ← 放置 workflow，触发发布
-│   └── 04-App端集成Sparkle.md  ← App 内加自动更新弹窗
+│   ├── 04-App端集成Sparkle.md  ← App 内加自动更新弹窗
+│   └── 05-多App复用与reusable-workflow.md  ← 方案C：一份逻辑、多 App 调用
 ├── templates/
-│   ├── release.yml            ← GitHub Actions 工作流
+│   ├── release.yml            ← 单仓库版工作流（直接放 App 仓库）
+│   ├── caller-workflow.yml    ← 方案C 调用方（每个 App 仓库放这个，几行）
 │   ├── UpdaterManager.swift   ← App 端更新管理器
 │   ├── Info.plist.snippet     ← Info.plist 需追加的键
 │   └── appcast-initial.xml    ← 公共仓库初始 appcast
