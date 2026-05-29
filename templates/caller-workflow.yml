@@ -20,7 +20,17 @@ permissions:
 jobs:
   release:
     uses: macuhy/macos-app-release-kit/.github/workflows/release-reusable.yml@main
-    secrets: inherit            # 继承本仓库（或所属组织）的 7 个密钥
+    # 跨仓库调用时 secrets: inherit 不转发组织级 secret，必须显式逐个传。
+    secrets:
+      DEVELOPER_ID_CERTIFICATE_P12:      ${{ secrets.DEVELOPER_ID_CERTIFICATE_P12 }}
+      DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+      APPLE_ID:                          ${{ secrets.APPLE_ID }}
+      APPLE_ID_PASSWORD:                 ${{ secrets.APPLE_ID_PASSWORD }}
+      APPLE_TEAM_ID:                     ${{ secrets.APPLE_TEAM_ID }}
+      SPARKLE_PRIVATE_KEY:               ${{ secrets.SPARKLE_PRIVATE_KEY }}
+      RELEASE_REPO_PAT:                  ${{ secrets.RELEASE_REPO_PAT }}
+      # 仅带 iCloud 等受限 entitlement 的 App 需要；其余可删这行
+      PROVISIONING_PROFILE_BASE64:       ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
     with:
       app_name: "{{APP_NAME}}"
       scheme: "{{XCODE_SCHEME}}"
@@ -31,3 +41,6 @@ jobs:
       # use_xcodegen: false                       # 用 xcodegen 的项目改 true
       # runner: "macos-15"                        # 可选
       # sparkle_version: "2.9.1"                  # 可选
+      # 带 iCloud/Push 等受限 entitlement 的 App：填 Developer ID profile 名 + 配 PROVISIONING_PROFILE_BASE64 secret
+      #   且 ExportOptions.plist 用 signingStyle=manual + provisioningProfiles 映射
+      # provisioning_profile_specifier: "My App Developer ID"
