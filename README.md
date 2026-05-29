@@ -21,12 +21,14 @@ macos-app-release-kit/
 │   ├── 04-App端集成Sparkle.md  ← App 内加自动更新弹窗
 │   └── 05-多App复用与reusable-workflow.md  ← 方案C：一份逻辑、多 App 调用
 ├── templates/
-│   ├── release.yml            ← 单仓库版工作流（直接放 App 仓库）
-│   ├── caller-workflow.yml    ← 方案C 调用方（每个 App 仓库放这个，几行）
+│   ├── caller-workflow.yml    ← 【推荐】调用方（每个 App 仓库放这个，几行）
+│   ├── release.yml            ← 自包含版工作流（不依赖 kit 仓库时用）
+│   ├── ExportOptions.plist    ← archive 导出配置（放 App 仓库根目录）
 │   ├── UpdaterManager.swift   ← App 端更新管理器
 │   ├── Info.plist.snippet     ← Info.plist 需追加的键
 │   └── appcast-initial.xml    ← 公共仓库初始 appcast
 └── scripts/
+    ├── update_appcast.py      ← 增量写入 appcast.xml 的一条 item
     ├── export-cert.sh         ← 把 .p12 证书转 base64
     ├── export-sparkle-key.sh  ← 导出 Sparkle 私钥
     └── setup-secrets.sh       ← 用 gh CLI 一键设置所有 Secrets

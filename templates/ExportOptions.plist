@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 放到【App 私有仓库根目录】: ExportOptions.plist
+     供 xcodebuild -exportArchive 使用，控制以 Developer ID 方式导出（App Store 之外分发）。 -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Developer ID 分发（非 App Store） -->
+    <key>method</key>
+    <string>developer-id</string>
+
+    <!-- 你的 10 位 Team ID（替换） -->
+    <key>teamID</key>
+    <string>{{APPLE_TEAM_ID}}</string>
+
+    <!-- 自动管理签名；如用手动签名改为 manual 并配置 provisioningProfiles -->
+    <key>signingStyle</key>
+    <string>automatic</string>
+
+    <!-- 导出后不再二次签名内嵌内容（已在 archive 阶段签好） -->
+    <key>signingCertificate</key>
+    <string>Developer ID Application</string>
+</dict>
+</plist>

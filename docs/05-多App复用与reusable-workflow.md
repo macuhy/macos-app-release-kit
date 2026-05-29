@@ -7,19 +7,19 @@
 | 内容 | 共用一份 | 位置 |
 |------|----------|------|
 | 发布逻辑（签名/公证/打包/appcast/发布） | ✅ | 本仓库 `.github/workflows/release-reusable.yml` |
-| 辅助脚本 | ✅ | 本仓库 `scripts/` |
-| 签名证书 / Apple 凭据 / 钥匙串密码 / PAT | ✅ | Secret（个人账号=每仓库各设一次；组织=组织级设一次） |
+| 辅助脚本（含 `update_appcast.py`） | ✅ | 本仓库 `scripts/` |
+| 签名证书 / Apple 凭据 / PAT | ✅ | Secret（个人账号=每仓库各设一次；组织=组织级设一次） |
 | Sparkle 私钥 | ⚠️ 建议每 App 一对 | Secret |
-| `app_name`/`scheme`/`public_repo`/`download_url_prefix` | ❌ 每 App 不同 | 调用方 `with:` |
-| 调用方 workflow（几行） | ❌ 每 App 一份 | App 私有仓库 `.github/workflows/release.yml` |
+| `app_name`/`scheme`/`project`/`public_repo`/`download_url_prefix` | ❌ 每 App 不同 | 调用方 `with:` |
+| 调用方 workflow + `ExportOptions.plist` | ❌ 每 App 一份 | App 私有仓库 |
 
 > 公共仓库里的 reusable workflow 只含**逻辑**，密钥永远在**调用方**环境解析，公开无泄露风险。
 
 ## 接入一个新 App（3 步）
 
-**1. 在 App 私有仓库放调用方 workflow**
-复制 `templates/caller-workflow.yml` → `.github/workflows/release.yml`，替换其中：
-- `{{APP_NAME}}` / `{{XCODE_SCHEME}}` / `{{PUBLIC_REPO}}` / `{{DOWNLOAD_URL_PREFIX}}`
+**1. 在 App 私有仓库放调用方 workflow + ExportOptions**
+- 复制 `templates/caller-workflow.yml` → `.github/workflows/release.yml`，替换 `{{APP_NAME}}`/`{{XCODE_SCHEME}}`/`{{PROJECT}}`/`{{PUBLIC_REPO}}`/`{{DOWNLOAD_URL_PREFIX}}`
+- 复制 `templates/ExportOptions.plist` → 仓库根目录，填 `{{APPLE_TEAM_ID}}`
 - 确认 `uses:` 指向 `uhyrdtrdtfg-creator/macos-app-release-kit/.github/workflows/release-reusable.yml@main`
 
 **2. 配置密钥**
@@ -39,12 +39,11 @@ uses: uhyrdtrdtfg-creator/macos-app-release-kit/.github/workflows/release-reusab
 
 ## 组织级密钥（真正"配一次到处用"）
 ```bash
-gh secret set BUILD_CERTIFICATE_BASE64 --org <组织> --visibility all
-gh secret set P12_PASSWORD             --org <组织> --visibility all
-gh secret set KEYCHAIN_PASSWORD        --org <组织> --visibility all
-gh secret set APPLE_ID                 --org <组织> --visibility all
-gh secret set APPLE_TEAM_ID            --org <组织> --visibility all
-gh secret set APPLE_APP_PASSWORD       --org <组织> --visibility all
-gh secret set RELEASE_REPO_PAT         --org <组织> --visibility all
+gh secret set DEVELOPER_ID_CERTIFICATE_P12       --org <组织> --visibility all
+gh secret set DEVELOPER_ID_CERTIFICATE_PASSWORD  --org <组织> --visibility all
+gh secret set APPLE_ID                           --org <组织> --visibility all
+gh secret set APPLE_TEAM_ID                      --org <组织> --visibility all
+gh secret set APPLE_ID_PASSWORD                  --org <组织> --visibility all
+gh secret set RELEASE_REPO_PAT                   --org <组织> --visibility all
 # SPARKLE_PRIVATE_KEY 建议放到各 App 仓库级（每 App 一对密钥）
 ```

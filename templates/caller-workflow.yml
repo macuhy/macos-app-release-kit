@@ -1,20 +1,28 @@
 # 放到【每个 App 私有仓库】: .github/workflows/release.yml
-# 这是唯一需要每个 App 各自维护的文件——只填几个参数，逻辑全在公共 kit 仓库。
-# 触发: git tag v1.2.0 && git push origin v1.2.0
+# 唯一需要每个 App 各自维护的文件——逻辑全在公共 kit 仓库的 reusable workflow。
+# 触发: ① git tag v1.2.0 && git push origin v1.2.0   ② Actions 页手动 Run（填版本号）
 name: Release
 
 on:
   push:
-    tags: ['v*']
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（如 1.2.0）'
+        required: true
 
 jobs:
   release:
-    # 调用公共 kit 仓库里的 reusable workflow（@main 或锁定某个 tag/commit 更稳）
     uses: uhyrdtrdtfg-creator/macos-app-release-kit/.github/workflows/release-reusable.yml@main
-    secrets: inherit            # 继承本仓库（或所属组织）的密钥
+    secrets: inherit            # 继承本仓库（或所属组织）的 7 个密钥
     with:
       app_name: "{{APP_NAME}}"
       scheme: "{{XCODE_SCHEME}}"
+      project: "{{PROJECT}}"              # 如 MyApp.xcodeproj
       public_repo: "{{PUBLIC_REPO}}"
       download_url_prefix: "{{DOWNLOAD_URL_PREFIX}}"
-      # sparkle_version: "2.6.4"   # 可选，覆盖默认版本
+      # export_options: "ExportOptions.plist"   # 可选，默认即此
+      # use_xcodegen: false                       # 用 xcodegen 的项目改 true
+      # runner: "macos-15"                        # 可选
+      # sparkle_version: "2.9.1"                  # 可选
