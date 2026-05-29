@@ -20,7 +20,7 @@
 **1. 在 App 私有仓库放调用方 workflow + ExportOptions**
 - 复制 `templates/caller-workflow.yml` → `.github/workflows/release.yml`，替换 `{{APP_NAME}}`/`{{XCODE_SCHEME}}`/`{{PROJECT}}`/`{{PUBLIC_REPO}}`/`{{DOWNLOAD_URL_PREFIX}}`
 - 复制 `templates/ExportOptions.plist` → 仓库根目录，填 `{{APPLE_TEAM_ID}}`
-- 确认 `uses:` 指向 `uhyrdtrdtfg-creator/macos-app-release-kit/.github/workflows/release-reusable.yml@main`
+- 确认 `uses:` 指向 `macuhy/macos-app-release-kit/.github/workflows/release-reusable.yml@main`
 
 **2. 配置密钥**
 - **个人账号**：在该 App 私有仓库跑一次 `scripts/setup-secrets.sh`（共用值直接复用，Sparkle 私钥按需换）。
@@ -33,7 +33,7 @@
 ## 版本锁定建议
 生产环境把 `@main` 换成锁定的 tag 或 commit SHA，避免 kit 仓库改动影响线上发布：
 ```yaml
-uses: uhyrdtrdtfg-creator/macos-app-release-kit/.github/workflows/release-reusable.yml@v1
+uses: macuhy/macos-app-release-kit/.github/workflows/release-reusable.yml@v1
 ```
 （给本 kit 仓库打个 `v1` tag 即可。）
 

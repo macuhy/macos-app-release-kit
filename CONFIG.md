@@ -14,7 +14,7 @@
 | `{{PRIVATE_REPO}}` | 私有源码仓库 `owner/repo` | `acme/mycoolapp` | |
 | `{{PUBLIC_REPO}}` | 公共分发仓库 `owner/repo` | `acme/mycoolapp-releases` | |
 | `{{PUBLIC_OWNER}}` | 公共仓库所属用户/组织 | `acme` | |
-| `{{SPARKLE_PUBLIC_KEY}}` | Sparkle EdDSA 公钥（generate_keys 打印） | `pfIShF...=` | |
+| `{{SPARKLE_PUBLIC_KEY}}` | Sparkle EdDSA 公钥（generate_keys 打印） | `pfIShF...=` | `QxXWME0pGom6NLGkoNq6AdkK8h+i+ZttNeED2No5HT8=` |
 | `{{APPCAST_URL}}` | App 拉取的更新源地址 | `https://raw.githubusercontent.com/acme/mycoolapp-releases/main/appcast.xml` | |
 | `{{DOWNLOAD_URL_PREFIX}}` | DMG 下载直链前缀 | `https://github.com/acme/mycoolapp-releases/releases/download/` | |
 
@@ -31,7 +31,7 @@
 | `RELEASE_REPO_PAT` | 对公共仓库有 contents:write 的细粒度 PAT | github.com/settings/tokens?type=beta |
 
 > 钥匙串密码已不再需要 secret——workflow 用 `openssl rand` 临时随机生成。
-> 共用性：前 5 个（Apple 身份）可跨 App 共用；`SPARKLE_PRIVATE_KEY` 建议每 App 一对；`RELEASE_REPO_PAT` 同 owner 公共仓库可共用。详见 docs/05。
+> 共用性：前 5 个（Apple 身份）可跨 App 共用；`SPARKLE_PRIVATE_KEY` 本套配置**所有 App 共用同一把**（公钥见上表，私钥已设为 secret）；`RELEASE_REPO_PAT` 同 owner 公共仓库可共用。详见 docs/05。
 
 ## 3. 版本号策略
 

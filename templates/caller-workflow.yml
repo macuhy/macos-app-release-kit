@@ -14,7 +14,7 @@ on:
 
 jobs:
   release:
-    uses: uhyrdtrdtfg-creator/macos-app-release-kit/.github/workflows/release-reusable.yml@main
+    uses: macuhy/macos-app-release-kit/.github/workflows/release-reusable.yml@main
     secrets: inherit            # 继承本仓库（或所属组织）的 7 个密钥
     with:
       app_name: "{{APP_NAME}}"
