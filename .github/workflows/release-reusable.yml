@@ -85,11 +85,20 @@ jobs:
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           CERT_PATH="$RUNNER_TEMP/certificate.p12"
-          echo "$P12_BASE64" | base64 --decode > "$CERT_PATH"
-          security import "$CERT_PATH" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          # printf 避免 echo 末尾换行；base64 解码 secret 还原 .p12
+          printf '%s' "$P12_BASE64" | base64 --decode > "$CERT_PATH"
+          DECODED_BYTES=$(wc -c < "$CERT_PATH" | tr -d ' ')
+          echo "解码后 .p12 字节数: $DECODED_BYTES"
+          if [ "$DECODED_BYTES" -lt 100 ]; then
+            echo "::error::DEVELOPER_ID_CERTIFICATE_P12 解码后过小($DECODED_BYTES B)——secret 值缺失或损坏"; exit 1
+          fi
+          # 导入身份(cert+key)。不加 -t cert，避免对 identity 导入的类型干扰。
+          security import "$CERT_PATH" -P "$P12_PASSWORD" -A -f pkcs12 -k "$KEYCHAIN_PATH"
           security set-key-partition-list -S apple-tool:,apple:,codesign: \
-            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" >/dev/null
           security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+          echo "== 钥匙串内签名身份 =="
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
 
       - name: Setup notarytool credentials
         env:

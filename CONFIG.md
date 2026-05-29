@@ -7,16 +7,16 @@
 
 | 占位符 | 含义 | 示例 | 你的填写值 |
 |--------|------|------|-----------|
-| `{{APP_NAME}}` | App 名称（与 .app 产物、scheme 一致） | `MyCoolApp` | |
-| `{{XCODE_SCHEME}}` | Xcode scheme 名 | `MyCoolApp` | |
-| `{{PROJECT}}` | .xcodeproj 路径 | `MyCoolApp.xcodeproj` | |
-| `{{BUNDLE_ID}}` | App 的 Bundle Identifier | `com.acme.mycoolapp` | |
-| `{{PRIVATE_REPO}}` | 私有源码仓库 `owner/repo` | `acme/mycoolapp` | |
-| `{{PUBLIC_REPO}}` | 公共分发仓库 `owner/repo` | `acme/mycoolapp-releases` | |
-| `{{PUBLIC_OWNER}}` | 公共仓库所属用户/组织 | `acme` | |
+| `{{APP_NAME}}` | App 名称（与 .app 产物、scheme 一致） | `MyCoolApp` | `Kown` |
+| `{{XCODE_SCHEME}}` | Xcode scheme 名 | `MyCoolApp` | `Kown` |
+| `{{PROJECT}}` | .xcodeproj 路径 | `MyCoolApp.xcodeproj` | `mac/Kown.xcodeproj` |
+| `{{BUNDLE_ID}}` | App 的 Bundle Identifier | `com.acme.mycoolapp` | `com.xiaobo.kown` |
+| `{{PRIVATE_REPO}}` | 私有源码仓库 `owner/repo` | `acme/mycoolapp` | `macuhy/kown` |
+| `{{PUBLIC_REPO}}` | 公共分发仓库 `owner/repo` | `acme/mycoolapp-releases` | `macuhy/kown-mac` |
+| `{{PUBLIC_OWNER}}` | 公共仓库所属用户/组织 | `acme` | `macuhy`（组织） |
 | `{{SPARKLE_PUBLIC_KEY}}` | Sparkle EdDSA 公钥（generate_keys 打印） | `pfIShF...=` | `QxXWME0pGom6NLGkoNq6AdkK8h+i+ZttNeED2No5HT8=` |
-| `{{APPCAST_URL}}` | App 拉取的更新源地址 | `https://raw.githubusercontent.com/acme/mycoolapp-releases/main/appcast.xml` | |
-| `{{DOWNLOAD_URL_PREFIX}}` | DMG 下载直链前缀 | `https://github.com/acme/mycoolapp-releases/releases/download/` | |
+| `{{APPCAST_URL}}` | App 拉取的更新源地址 | `https://raw.githubusercontent.com/acme/mycoolapp-releases/main/appcast.xml` | `https://raw.githubusercontent.com/macuhy/kown-mac/main/appcast.xml` |
+| `{{DOWNLOAD_URL_PREFIX}}` | 产物（ZIP）下载直链前缀 | `https://github.com/acme/mycoolapp-releases/releases/download/` | `https://github.com/macuhy/kown-mac/releases/download/` |
 
 ## 2. GitHub Secrets（共 7 个，设置在【私有仓库】或【组织】，见 docs/02）
 
