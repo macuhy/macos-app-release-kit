@@ -1,0 +1,39 @@
+# 放到【每个 iOS App 私有仓库】: .github/workflows/testflight.yml
+# 逻辑全在 kit 仓库的 ios-testflight-reusable.yml，这里只传参数 + secret。
+# 触发: ① git tag v1.2.0 && git push origin v1.2.0   ② Actions 页手动 Run（填版本号）
+name: TestFlight
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（如 1.2.0）'
+        required: true
+
+# 被调用方需要 contents:write（dispatch 打 tag）；权限不能超过调用方，必须在此显式授予。
+permissions:
+  contents: write
+
+jobs:
+  testflight:
+    uses: macuhy/macos-app-release-kit/.github/workflows/ios-testflight-reusable.yml@main
+    # 跨仓库调用时 secrets: inherit 不转发组织级 secret，必须显式逐个传。
+    secrets:
+      DISTRIBUTION_CERTIFICATE_P12:      ${{ secrets.DISTRIBUTION_CERTIFICATE_P12 }}
+      DISTRIBUTION_CERTIFICATE_PASSWORD: ${{ secrets.DISTRIBUTION_CERTIFICATE_PASSWORD }}
+      APPLE_TEAM_ID:                     ${{ secrets.APPLE_TEAM_ID }}
+      ASC_KEY_ID:                        ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID:                     ${{ secrets.ASC_ISSUER_ID }}
+      ASC_API_KEY_P8:                    ${{ secrets.ASC_API_KEY_P8 }}
+      IOS_PROVISIONING_PROFILE_BASE64:   ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+    with:
+      app_name: "{{APP_NAME}}"
+      scheme: "{{IOS_SCHEME}}"
+      project: "{{IOS_PROJECT}}"          # 如 ios/MyApp.xcodeproj
+      bundle_id: "{{BUNDLE_ID}}"          # 与 ExportOptions-iOS.plist 映射 key 一致
+      provisioning_profile_specifier: "{{IOS_PROFILE_NAME}}"   # App Store 类型 profile 名
+      # export_options: "ExportOptions-iOS.plist"   # 可选，默认即此
+      # use_xcodegen: false                          # 用 xcodegen 的项目改 true
+      # runner: "macos-15"                           # 可选

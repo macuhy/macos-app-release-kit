@@ -33,7 +33,33 @@
 > 钥匙串密码已不再需要 secret——workflow 用 `openssl rand` 临时随机生成。
 > 共用性：前 5 个（Apple 身份）可跨 App 共用；`SPARKLE_PRIVATE_KEY` 本套配置**所有 App 共用同一把**（公钥见上表，私钥已设为 secret）；`RELEASE_REPO_PAT` 同 owner 公共仓库可共用。详见 docs/05。
 
-## 3. 版本号策略
+## 3. iOS / TestFlight 管线（可选，与 macOS 独立）
+
+> 仅当需要把 iOS App 自动传 TestFlight 内部测试时用。完整步骤见 `docs/07`。
+
+### 3.1 变量（替换 iOS 模板中的占位符）
+
+| 占位符 | 含义 | 示例 |
+|--------|------|------|
+| `{{IOS_SCHEME}}` | iOS Xcode scheme 名 | `MyApp` |
+| `{{IOS_PROJECT}}` | iOS .xcodeproj 路径 | `ios/MyApp.xcodeproj` |
+| `{{IOS_PROFILE_NAME}}` | App Store 类型 provisioning profile 名 | `MyApp AppStore` |
+| `{{BUNDLE_ID}}` | App Bundle Identifier（与上方第 1 节共用） | `com.xiaobo.kown` |
+| `{{APPLE_TEAM_ID}}` | 10 位 Team ID（与 macOS 共用） | — |
+
+### 3.2 iOS Secrets（共 7 个，`APPLE_TEAM_ID` 与 macOS 共用）
+
+| Secret 名 | 含义 | 怎么拿 |
+|-----------|------|--------|
+| `DISTRIBUTION_CERTIFICATE_P12` | **Apple Distribution** 证书 (.p12) base64 | `scripts/export-cert.sh` |
+| `DISTRIBUTION_CERTIFICATE_PASSWORD` | 导出 .p12 时设的密码 | 你自己设 |
+| `ASC_KEY_ID` | App Store Connect API Key ID | ASC → Users and Access → Integrations |
+| `ASC_ISSUER_ID` | ASC API Issuer ID | 同上页面顶部 |
+| `ASC_API_KEY_P8` | AuthKey_xxx.p8 的 base64 | `scripts/export-asc-key.sh` |
+| `IOS_PROVISIONING_PROFILE_BASE64` | App Store 类型 profile (.mobileprovision) base64 | `base64 -i xxx.mobileprovision` |
+| `APPLE_TEAM_ID` | 10 位 Team ID | 与 macOS 管线共用 |
+
+## 4. 版本号策略
 
 - App `Info.plist` 的 `CFBundleVersion`（build 号）**每次发布必须递增**，否则 Sparkle 检测不到更新。
 - 本工具用 **git tag** 作为版本来源：推送 `v1.2.0` → `CFShortVersionString=1.2.0`，build 号用 `git rev-list --count HEAD` 自动生成。

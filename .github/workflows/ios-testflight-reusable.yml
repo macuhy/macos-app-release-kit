@@ -1,0 +1,178 @@
+# 可复用工作流：iOS 私有源码 → 自动上传 TestFlight 内部测试。
+# 与 release-reusable.yml（macOS）并列，是另一条独立管线：
+#   - 无公证、无 Sparkle、无双仓库发布；改用 App Store Connect API Key 上传 .ipa。
+#   - 签名身份 Apple Distribution；ExportOptions method=app-store-connect。
+#   - 用了 iCloud 等受限 entitlement → 手动签名 + App Store 类型 provisioning profile（必填）。
+# 复用 macOS 那份的：随机钥匙串、证书导入、版本号推导、dispatch 打 tag、钥匙串清理。
+name: iOS TestFlight (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      app_name:            { description: "App 名（= scheme/产物名）", required: true,  type: string }
+      scheme:              { description: "Xcode scheme",            required: true,  type: string }
+      project:             { description: "xcodeproj 路径，如 MyApp.xcodeproj", required: true, type: string }
+      bundle_id:           { description: "App Bundle Identifier（写进 ExportOptions 的 provisioningProfiles 映射）", required: true, type: string }
+      provisioning_profile_specifier: { description: "App Store 类型 provisioning profile 名（含 iCloud 等 capability，必填）", required: true, type: string }
+      export_options:      { description: "ExportOptions.plist 路径",  required: false, type: string,  default: "ExportOptions-iOS.plist" }
+      use_xcodegen:        { description: "是否先 xcodegen generate", required: false, type: boolean, default: false }
+      runner:              { description: "runner 标签",             required: false, type: string,  default: "macos-15" }
+    secrets:
+      DISTRIBUTION_CERTIFICATE_P12:      { required: true }    # Apple Distribution 证书 (.p12) base64
+      DISTRIBUTION_CERTIFICATE_PASSWORD: { required: true }
+      APPLE_TEAM_ID:                     { required: true }    # 与 macOS 管线共用
+      ASC_KEY_ID:                        { required: true }    # App Store Connect API Key ID
+      ASC_ISSUER_ID:                     { required: true }    # ASC API Issuer ID
+      ASC_API_KEY_P8:                    { required: true }    # AuthKey_xxx.p8 的 base64
+      IOS_PROVISIONING_PROFILE_BASE64:   { required: true }    # App Store 类型 profile (.mobileprovision) base64
+
+permissions:
+  contents: write          # 用于 workflow_dispatch 时给私有源码仓库打 tag
+
+jobs:
+  testflight:
+    runs-on: ${{ inputs.runner }}
+    env:
+      APP_NAME: ${{ inputs.app_name }}
+      SCHEME: ${{ inputs.scheme }}
+      PROJECT: ${{ inputs.project }}
+      EXPORT_OPTIONS: ${{ inputs.export_options }}
+    steps:
+      - name: Checkout (caller repo)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install xcodegen
+        if: ${{ inputs.use_xcodegen }}
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        if: ${{ inputs.use_xcodegen }}
+        run: xcodegen generate
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          # build 号用提交数：单调递增，正好满足 TestFlight 同一版本号 build 必须递增
+          BUILD_NUMBER=$(git rev-list --count HEAD)
+          echo "version=$VERSION"           >> "$GITHUB_OUTPUT"
+          echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION"              >> "$GITHUB_OUTPUT"
+
+      - name: Install certificate
+        env:
+          P12_BASE64:   ${{ secrets.DISTRIBUTION_CERTIFICATE_P12 }}
+          P12_PASSWORD: ${{ secrets.DISTRIBUTION_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"     # 随机，无需 secret
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          CERT_PATH="$RUNNER_TEMP/certificate.p12"
+          # printf 避免 echo 末尾换行；base64 解码 secret 还原 .p12
+          printf '%s' "$P12_BASE64" | base64 --decode > "$CERT_PATH"
+          DECODED_BYTES=$(wc -c < "$CERT_PATH" | tr -d ' ')
+          echo "解码后 .p12 字节数: $DECODED_BYTES"
+          if [ "$DECODED_BYTES" -lt 100 ]; then
+            echo "::error::DISTRIBUTION_CERTIFICATE_P12 解码后过小($DECODED_BYTES B)——secret 值缺失或损坏"; exit 1
+          fi
+          # 导入身份(cert+key)。不加 -t cert，避免对 identity 导入的类型干扰。
+          security import "$CERT_PATH" -P "$P12_PASSWORD" -A -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+          echo "== 钥匙串内签名身份 =="
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+      # App Store 类型 provisioning profile（含 iCloud 等 capability）。iOS 扩展名为 .mobileprovision。
+      - name: Install provisioning profile
+        env:
+          PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          TMP="$RUNNER_TEMP/profile.mobileprovision"
+          printf '%s' "$PROFILE_BASE64" | base64 --decode > "$TMP"
+          UUID=$(security cms -D -i "$TMP" 2>/dev/null | plutil -extract UUID raw -)
+          echo "安装 provisioning profile: $UUID"
+          D="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$D"; cp "$TMP" "$D/$UUID.mobileprovision"
+
+      # App Store Connect API Key：altool 按 Key ID 从该固定目录读取 .p8
+      - name: Setup App Store Connect API key
+        env:
+          ASC_KEY_ID:     ${{ secrets.ASC_KEY_ID }}
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+        run: |
+          set -euo pipefail
+          KEY_DIR="$HOME/.appstoreconnect/private_keys"
+          mkdir -p "$KEY_DIR"
+          printf '%s' "$ASC_API_KEY_P8" | base64 --decode > "$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8"
+          BYTES=$(wc -c < "$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8" | tr -d ' ')
+          echo "解码后 .p8 字节数: $BYTES"
+          if [ "$BYTES" -lt 100 ]; then
+            echo "::error::ASC_API_KEY_P8 解码后过小($BYTES B)——secret 值缺失或损坏"; exit 1
+          fi
+
+      - name: Resolve dependencies
+        run: xcodebuild -resolvePackageDependencies -project "$PROJECT" -scheme "$SCHEME"
+
+      - name: Archive
+        env:
+          VERSION:           ${{ steps.version.outputs.version }}
+          BUILD_NUMBER:      ${{ steps.version.outputs.build_number }}
+          PROFILE_SPECIFIER: ${{ inputs.provisioning_profile_specifier }}
+        run: |
+          set -euo pipefail
+          xcodebuild archive \
+            -project "$PROJECT" -scheme "$SCHEME" \
+            -archivePath build/$APP_NAME.xcarchive \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            CODE_SIGN_STYLE=Manual \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_SPECIFIER" \
+            DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
+            MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER"
+
+      - name: Export IPA
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath build/$APP_NAME.xcarchive \
+            -exportPath build/export \
+            -exportOptionsPlist "$EXPORT_OPTIONS"
+          # 导出的 .ipa 文件名取决于 scheme/产物名，统一找出来供上传用
+          IPA_PATH=$(find build/export -maxdepth 1 -name '*.ipa' | head -n1)
+          [ -n "$IPA_PATH" ] || { echo "::error::未找到导出的 .ipa"; exit 1; }
+          echo "IPA_PATH=$IPA_PATH" >> "$GITHUB_ENV"
+
+      - name: Upload to TestFlight
+        env:
+          ASC_KEY_ID:    ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          # --upload-app 推到 App Store Connect；处理完内部测试员自动可见，无需 Beta 审核
+          xcrun altool --upload-app -f "$IPA_PATH" -t ios \
+            --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
+
+      - name: Create tag (manual dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG" && git push origin "$TAG"
+
+      - name: Cleanup secrets
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/build.keychain-db" 2>/dev/null || true
+          rm -f "$HOME/.appstoreconnect/private_keys/AuthKey_"*.p8 2>/dev/null || true
