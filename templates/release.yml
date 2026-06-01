@@ -29,6 +29,11 @@ jobs:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
 
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
       - name: Determine version
         id: version
         run: |
@@ -56,12 +61,22 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$PW" "$KC"
           security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
 
-      - name: Setup notarytool credentials
+      - name: Setup App Store Connect API key
+        env:
+          ASC_KEY_ID:     ${{ secrets.ASC_KEY_ID }}
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
         run: |
-          xcrun notarytool store-credentials "notarytool" \
-            --apple-id "${{ secrets.APPLE_ID }}" \
-            --password "${{ secrets.APPLE_ID_PASSWORD }}" \
-            --team-id "${{ secrets.APPLE_TEAM_ID }}"
+          set -euo pipefail
+          KEY_DIR="$HOME/.appstoreconnect/private_keys"; mkdir -p "$KEY_DIR"
+          printf '%s' "$ASC_API_KEY_P8" | base64 --decode > "$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8"
+          echo "ASC_KEY_PATH=$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8" >> "$GITHUB_ENV"
+
+      - name: Cache SwiftPM
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/org.swift.swiftpm
+          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: ${{ runner.os }}-spm-
 
       - name: Resolve dependencies
         run: xcodebuild -resolvePackageDependencies -project "$PROJECT" -scheme "$SCHEME"
@@ -82,10 +97,14 @@ jobs:
             -exportPath build/export -exportOptionsPlist ExportOptions.plist
 
       - name: Notarize & staple
+        env:
+          ASC_KEY_ID:    ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
           set -euo pipefail
           cd build/export && zip -r -y "../$APP_NAME-notarize.zip" "$APP_NAME.app" && cd ../..
-          xcrun notarytool submit "build/$APP_NAME-notarize.zip" --keychain-profile "notarytool" --wait
+          xcrun notarytool submit "build/$APP_NAME-notarize.zip" \
+            --key "$ASC_KEY_PATH" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID" --wait
           xcrun stapler staple "build/export/$APP_NAME.app"
 
       - name: Create release ZIP
@@ -139,6 +158,8 @@ jobs:
           git diff --cached --quiet || git commit -m "release: $APP_NAME $VERSION (build $BUILD_NUMBER)"
           git push
 
-      - name: Cleanup keychain
+      - name: Cleanup secrets
         if: always()
-        run: security delete-keychain "$RUNNER_TEMP/build.keychain-db" 2>/dev/null || true
+        run: |
+          security delete-keychain "$RUNNER_TEMP/build.keychain-db" 2>/dev/null || true
+          rm -f "$HOME/.appstoreconnect/private_keys/AuthKey_"*.p8 2>/dev/null || true

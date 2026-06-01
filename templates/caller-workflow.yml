@@ -24,9 +24,10 @@ jobs:
     secrets:
       DEVELOPER_ID_CERTIFICATE_P12:      ${{ secrets.DEVELOPER_ID_CERTIFICATE_P12 }}
       DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
-      APPLE_ID:                          ${{ secrets.APPLE_ID }}
-      APPLE_ID_PASSWORD:                 ${{ secrets.APPLE_ID_PASSWORD }}
       APPLE_TEAM_ID:                     ${{ secrets.APPLE_TEAM_ID }}
+      ASC_KEY_ID:                        ${{ secrets.ASC_KEY_ID }}      # 公证用 API Key（替代 APPLE_ID+专用密码）
+      ASC_ISSUER_ID:                     ${{ secrets.ASC_ISSUER_ID }}
+      ASC_API_KEY_P8:                    ${{ secrets.ASC_API_KEY_P8 }}
       SPARKLE_PRIVATE_KEY:               ${{ secrets.SPARKLE_PRIVATE_KEY }}
       RELEASE_REPO_PAT:                  ${{ secrets.RELEASE_REPO_PAT }}
       # 仅带 iCloud 等受限 entitlement 的 App 需要；其余可删这行

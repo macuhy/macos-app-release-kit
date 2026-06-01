@@ -20,20 +20,19 @@ jobs:
   testflight:
     uses: macuhy/macos-app-release-kit/.github/workflows/ios-testflight-reusable.yml@main
     # 跨仓库调用时 secrets: inherit 不转发组织级 secret，必须显式逐个传。
+    # 这 6 个全是团队级、所有 iOS App 公用（自动签名后无需每 App 的 profile secret）。
     secrets:
-      DISTRIBUTION_CERTIFICATE_P12:      ${{ secrets.DISTRIBUTION_CERTIFICATE_P12 }}
-      DISTRIBUTION_CERTIFICATE_PASSWORD: ${{ secrets.DISTRIBUTION_CERTIFICATE_PASSWORD }}
-      APPLE_TEAM_ID:                     ${{ secrets.APPLE_TEAM_ID }}
-      ASC_KEY_ID:                        ${{ secrets.ASC_KEY_ID }}
-      ASC_ISSUER_ID:                     ${{ secrets.ASC_ISSUER_ID }}
-      ASC_API_KEY_P8:                    ${{ secrets.ASC_API_KEY_P8 }}
-      IOS_PROVISIONING_PROFILE_BASE64:   ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+      IOS_DIST_CERT_P12:      ${{ secrets.IOS_DIST_CERT_P12 }}
+      IOS_DIST_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+      APPLE_TEAM_ID:          ${{ secrets.APPLE_TEAM_ID }}
+      ASC_KEY_ID:             ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID:          ${{ secrets.ASC_ISSUER_ID }}
+      ASC_API_KEY_P8:         ${{ secrets.ASC_API_KEY_P8 }}
     with:
       app_name: "{{APP_NAME}}"
       scheme: "{{IOS_SCHEME}}"
       project: "{{IOS_PROJECT}}"          # 如 ios/MyApp.xcodeproj
-      bundle_id: "{{BUNDLE_ID}}"          # 与 ExportOptions-iOS.plist 映射 key 一致
-      provisioning_profile_specifier: "{{IOS_PROFILE_NAME}}"   # App Store 类型 profile 名
       # export_options: "ExportOptions-iOS.plist"   # 可选，默认即此
       # use_xcodegen: false                          # 用 xcodegen 的项目改 true
       # runner: "macos-15"                           # 可选
+      # xcode_version: "16.4"                        # 可选，默认 latest-stable

@@ -1,5 +1,5 @@
 # 可复用工作流（方案 B：私有源码 → 公共仓库分发）。
-# 吸收参考实践：archive/export + ExportOptions、随机钥匙串、store-credentials、
+# 吸收参考实践：archive/export + ExportOptions、随机钥匙串、API Key 公证、
 # sign_update + 脚本增量更新 appcast、手动 dispatch、钥匙串清理。
 # 跨仓库发布仍需 RELEASE_REPO_PAT（内置 GITHUB_TOKEN 出不了本仓库）。
 name: macOS Release (reusable, two-repo)
@@ -17,12 +17,14 @@ on:
       runner:              { description: "runner 标签",            required: false, type: string, default: "macos-15" }
       sparkle_version:     { description: "Sparkle 工具版本",        required: false, type: string, default: "2.9.1" }
       provisioning_profile_specifier: { description: "Developer ID provisioning profile 名（带 iCloud 等受限 entitlement 的 App 必填，同时提供 PROVISIONING_PROFILE_BASE64 secret）", required: false, type: string, default: "" }
+      xcode_version:       { description: "锁定 Xcode 版本（如 16.4；latest-stable=最新正式版）", required: false, type: string, default: "latest-stable" }
     secrets:
       DEVELOPER_ID_CERTIFICATE_P12:      { required: true }
       DEVELOPER_ID_CERTIFICATE_PASSWORD: { required: true }
-      APPLE_ID:                          { required: true }
-      APPLE_ID_PASSWORD:                 { required: true }
       APPLE_TEAM_ID:                     { required: true }
+      ASC_KEY_ID:                        { required: true }   # App Store Connect API Key（公证用，替代 APPLE_ID+专用密码）
+      ASC_ISSUER_ID:                     { required: true }
+      ASC_API_KEY_P8:                    { required: true }   # AuthKey_xxx.p8 的 base64
       SPARKLE_PRIVATE_KEY:               { required: true }
       RELEASE_REPO_PAT:                  { required: true }
       PROVISIONING_PROFILE_BASE64:       { required: false }   # 仅带受限 entitlement（iCloud 等）的 App 需要
@@ -46,6 +48,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: ${{ inputs.xcode_version }}
 
       # 取本 kit 仓库的脚本（update_appcast.py）
       - name: Checkout kit scripts
@@ -102,14 +109,22 @@ jobs:
           echo "== 钥匙串内签名身份 =="
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
 
-      - name: Setup notarytool credentials
+      # 公证用 App Store Connect API Key（替代 Apple ID + 专用密码）。放固定路径供 notarytool 读取。
+      - name: Setup App Store Connect API key
         env:
-          APPLE_ID:          ${{ secrets.APPLE_ID }}
-          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
-          APPLE_TEAM_ID:     ${{ secrets.APPLE_TEAM_ID }}
+          ASC_KEY_ID:     ${{ secrets.ASC_KEY_ID }}
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
         run: |
-          xcrun notarytool store-credentials "notarytool" \
-            --apple-id "$APPLE_ID" --password "$APPLE_ID_PASSWORD" --team-id "$APPLE_TEAM_ID"
+          set -euo pipefail
+          KEY_DIR="$HOME/.appstoreconnect/private_keys"
+          mkdir -p "$KEY_DIR"
+          printf '%s' "$ASC_API_KEY_P8" | base64 --decode > "$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8"
+          BYTES=$(wc -c < "$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8" | tr -d ' ')
+          echo "解码后 .p8 字节数: $BYTES"
+          if [ "$BYTES" -lt 100 ]; then
+            echo "::error::ASC_API_KEY_P8 解码后过小($BYTES B)——secret 值缺失或损坏"; exit 1
+          fi
+          echo "ASC_KEY_PATH=$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8" >> "$GITHUB_ENV"
 
       # 带受限 entitlement（iCloud 等）的 App 需要 Developer ID provisioning profile。
       # 仅当传了 provisioning_profile_specifier 时安装；普通 App 跳过。
@@ -130,6 +145,14 @@ jobs:
                    "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
             mkdir -p "$D"; cp "$TMP" "$D/$UUID.provisionprofile"
           done
+
+      # 缓存 SwiftPM 依赖，避免每次重新拉取
+      - name: Cache SwiftPM
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/org.swift.swiftpm
+          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: ${{ runner.os }}-spm-
 
       - name: Resolve dependencies
         run: xcodebuild -resolvePackageDependencies -project "$PROJECT" -scheme "$SCHEME"
@@ -164,10 +187,14 @@ jobs:
             -exportOptionsPlist "$EXPORT_OPTIONS"
 
       - name: Notarize & staple
+        env:
+          ASC_KEY_ID:    ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
           set -euo pipefail
           cd build/export && zip -r -y "../$APP_NAME-notarize.zip" "$APP_NAME.app" && cd ../..
-          xcrun notarytool submit "build/$APP_NAME-notarize.zip" --keychain-profile "notarytool" --wait
+          xcrun notarytool submit "build/$APP_NAME-notarize.zip" \
+            --key "$ASC_KEY_PATH" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID" --wait
           xcrun stapler staple "build/export/$APP_NAME.app"
 
       - name: Create release ZIP
@@ -237,6 +264,8 @@ jobs:
             git commit -m "release: $APP_NAME $VERSION (build $BUILD_NUMBER)"
           git push
 
-      - name: Cleanup keychain
+      - name: Cleanup secrets
         if: always()
-        run: security delete-keychain "$RUNNER_TEMP/build.keychain-db" 2>/dev/null || true
+        run: |
+          security delete-keychain "$RUNNER_TEMP/build.keychain-db" 2>/dev/null || true
+          rm -f "$HOME/.appstoreconnect/private_keys/AuthKey_"*.p8 2>/dev/null || true

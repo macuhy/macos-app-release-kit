@@ -18,20 +18,22 @@
 | `{{APPCAST_URL}}` | App 拉取的更新源地址 | `https://raw.githubusercontent.com/acme/mycoolapp-releases/main/appcast.xml` | `https://raw.githubusercontent.com/macuhy/kown-mac/main/appcast.xml` |
 | `{{DOWNLOAD_URL_PREFIX}}` | 产物（ZIP）下载直链前缀 | `https://github.com/acme/mycoolapp-releases/releases/download/` | `https://github.com/macuhy/kown-mac/releases/download/` |
 
-## 2. GitHub Secrets（共 7 个，设置在【私有仓库】或【组织】，见 docs/02）
+## 2. GitHub Secrets（macOS 管线，共 8 个，设置在【私有仓库】或【组织】，见 docs/02）
 
 | Secret 名 | 含义 | 怎么拿 |
 |-----------|------|--------|
 | `DEVELOPER_ID_CERTIFICATE_P12` | Developer ID Application 证书 (.p12) 的 base64 | `scripts/export-cert.sh` |
 | `DEVELOPER_ID_CERTIFICATE_PASSWORD` | 导出 .p12 时设的密码 | 你自己设 |
-| `APPLE_ID` | Apple 开发者账号邮箱 | 你的账号 |
 | `APPLE_TEAM_ID` | 10 位 Team ID | developer.apple.com → Membership |
-| `APPLE_ID_PASSWORD` | App 专用密码（公证用） | appleid.apple.com → 登录与安全 → App 专用密码 |
+| `ASC_KEY_ID` | App Store Connect API Key ID（公证用） | ASC → Users and Access → Integrations |
+| `ASC_ISSUER_ID` | ASC API Issuer ID | 同上页面顶部 |
+| `ASC_API_KEY_P8` | AuthKey_xxx.p8 的 base64 | `scripts/export-asc-key.sh` |
 | `SPARKLE_PRIVATE_KEY` | Sparkle EdDSA 私钥 | `scripts/export-sparkle-key.sh` |
 | `RELEASE_REPO_PAT` | 对公共仓库有 contents:write 的细粒度 PAT | github.com/settings/tokens?type=beta |
 
+> 公证已改用 **App Store Connect API Key**（`ASC_*` 三个），不再需要 `APPLE_ID` + App 专用密码；这把 key 与 iOS 管线**完全共用**。
 > 钥匙串密码已不再需要 secret——workflow 用 `openssl rand` 临时随机生成。
-> 共用性：前 5 个（Apple 身份）可跨 App 共用；`SPARKLE_PRIVATE_KEY` 本套配置**所有 App 共用同一把**（公钥见上表，私钥已设为 secret）；`RELEASE_REPO_PAT` 同 owner 公共仓库可共用。详见 docs/05。
+> 共用性：Apple 身份类（证书、Team ID、`ASC_*`）可跨 App 共用；`SPARKLE_PRIVATE_KEY` 本套配置**所有 App 共用同一把**（公钥见上表，私钥已设为 secret）；`RELEASE_REPO_PAT` 同 owner 公共仓库可共用。详见 docs/05。
 
 ## 3. iOS / TestFlight 管线（可选，与 macOS 独立）
 
@@ -43,21 +45,23 @@
 |--------|------|------|
 | `{{IOS_SCHEME}}` | iOS Xcode scheme 名 | `MyApp` |
 | `{{IOS_PROJECT}}` | iOS .xcodeproj 路径 | `ios/MyApp.xcodeproj` |
-| `{{IOS_PROFILE_NAME}}` | App Store 类型 provisioning profile 名 | `MyApp AppStore` |
-| `{{BUNDLE_ID}}` | App Bundle Identifier（与上方第 1 节共用） | `com.xiaobo.kown` |
 | `{{APPLE_TEAM_ID}}` | 10 位 Team ID（与 macOS 共用） | — |
 
-### 3.2 iOS Secrets（共 7 个，`APPLE_TEAM_ID` 与 macOS 共用）
+> 自动签名后无需手动建 provisioning profile，故不再有 `{{IOS_PROFILE_NAME}}`；`{{BUNDLE_ID}}` 在 Xcode 工程里配置即可，模板不再引用。
+
+### 3.2 iOS Secrets（共 6 个，全部与 macOS 管线共用同一套 Apple 身份）
 
 | Secret 名 | 含义 | 怎么拿 |
 |-----------|------|--------|
-| `DISTRIBUTION_CERTIFICATE_P12` | **Apple Distribution** 证书 (.p12) base64 | `scripts/export-cert.sh` |
-| `DISTRIBUTION_CERTIFICATE_PASSWORD` | 导出 .p12 时设的密码 | 你自己设 |
-| `ASC_KEY_ID` | App Store Connect API Key ID | ASC → Users and Access → Integrations |
+| `IOS_DIST_CERT_P12` | **Apple Distribution** 证书 (.p12) base64 | `scripts/export-cert.sh` |
+| `IOS_DIST_CERT_PASSWORD` | 导出 .p12 时设的密码 | 你自己设 |
+| `ASC_KEY_ID` | App Store Connect API Key ID（上传 + 现签 profile） | ASC → Users and Access → Integrations |
 | `ASC_ISSUER_ID` | ASC API Issuer ID | 同上页面顶部 |
 | `ASC_API_KEY_P8` | AuthKey_xxx.p8 的 base64 | `scripts/export-asc-key.sh` |
-| `IOS_PROVISIONING_PROFILE_BASE64` | App Store 类型 profile (.mobileprovision) base64 | `base64 -i xxx.mobileprovision` |
 | `APPLE_TEAM_ID` | 10 位 Team ID | 与 macOS 管线共用 |
+
+> 6 个全是团队级，**所有 iOS App 公用**。自动签名（`-allowProvisioningUpdates` + API Key）会现签/续期 profile，**无需再为每个 App 准备 provisioning profile secret**。
+> `ASC_*` 三个与 macOS 公证用的是同一把 key；iOS 的 Distribution 证书与 macOS 的 Developer ID 证书是两张不同证书。
 
 ## 4. 版本号策略
 

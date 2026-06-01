@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- 放到【iOS App 私有仓库根目录】: ExportOptions-iOS.plist
      供 xcodebuild -exportArchive 使用，以 App Store 方式导出 .ipa（再由 altool 上传 TestFlight）。
-     用了 iCloud 等受限 entitlement → 必须手动签名 + 指定 App Store 类型 profile。 -->
+     自动签名：配合 workflow 的 -allowProvisioningUpdates + API Key，Xcode 现签 profile，
+     无需手动指定 provisioningProfiles（iCloud 等受限 entitlement 也自动管理）。 -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -13,24 +14,15 @@
     <key>teamID</key>
     <string>{{APPLE_TEAM_ID}}</string>
 
-    <!-- 手动签名：受限 entitlement(iCloud) 必须显式指定 profile -->
+    <!-- 自动签名：profile 由 Xcode 用 API Key 现签 -->
     <key>signingStyle</key>
-    <string>manual</string>
-    <key>signingCertificate</key>
-    <string>Apple Distribution</string>
-
-    <!-- bundleID → App Store 类型 profile 名 的映射（替换两个占位符） -->
-    <key>provisioningProfiles</key>
-    <dict>
-        <key>{{BUNDLE_ID}}</key>
-        <string>{{IOS_PROFILE_NAME}}</string>
-    </dict>
+    <string>automatic</string>
 
     <!-- 仅导出 .ipa；上传由 workflow 的 altool 步骤单独完成 -->
     <key>destination</key>
     <string>export</string>
 
-    <!-- TestFlight 构建无需 bitcode/符号上传可保持默认；如需崩溃符号设为 true -->
+    <!-- 上传崩溃符号；如不需要可设为 false -->
     <key>uploadSymbols</key>
     <true/>
 </dict>

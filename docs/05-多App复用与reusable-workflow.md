@@ -41,9 +41,11 @@ uses: macuhy/macos-app-release-kit/.github/workflows/release-reusable.yml@v1
 ```bash
 gh secret set DEVELOPER_ID_CERTIFICATE_P12       --org <组织> --visibility all
 gh secret set DEVELOPER_ID_CERTIFICATE_PASSWORD  --org <组织> --visibility all
-gh secret set APPLE_ID                           --org <组织> --visibility all
 gh secret set APPLE_TEAM_ID                      --org <组织> --visibility all
-gh secret set APPLE_ID_PASSWORD                  --org <组织> --visibility all
+gh secret set ASC_KEY_ID                         --org <组织> --visibility all
+gh secret set ASC_ISSUER_ID                      --org <组织> --visibility all
+gh secret set ASC_API_KEY_P8                     --org <组织> --visibility all
 gh secret set RELEASE_REPO_PAT                   --org <组织> --visibility all
+# 以上 macOS + iOS 两条管线共用；iOS 另需 IOS_DIST_CERT_P12/_PASSWORD（也可组织级）
 # SPARKLE_PRIVATE_KEY 建议放到各 App 仓库级（每 App 一对密钥）
 ```

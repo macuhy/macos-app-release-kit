@@ -2,7 +2,8 @@
 # 与 release-reusable.yml（macOS）并列，是另一条独立管线：
 #   - 无公证、无 Sparkle、无双仓库发布；改用 App Store Connect API Key 上传 .ipa。
 #   - 签名身份 Apple Distribution；ExportOptions method=app-store-connect。
-#   - 用了 iCloud 等受限 entitlement → 手动签名 + App Store 类型 provisioning profile（必填）。
+#   - 自动签名 + API Key 现签 profile（-allowProvisioningUpdates）：
+#     无需手动建/维护 provisioning profile，iCloud 等受限 entitlement 也自动管理。
 # 复用 macOS 那份的：随机钥匙串、证书导入、版本号推导、dispatch 打 tag、钥匙串清理。
 name: iOS TestFlight (reusable)
 
@@ -12,19 +13,17 @@ on:
       app_name:            { description: "App 名（= scheme/产物名）", required: true,  type: string }
       scheme:              { description: "Xcode scheme",            required: true,  type: string }
       project:             { description: "xcodeproj 路径，如 MyApp.xcodeproj", required: true, type: string }
-      bundle_id:           { description: "App Bundle Identifier（写进 ExportOptions 的 provisioningProfiles 映射）", required: true, type: string }
-      provisioning_profile_specifier: { description: "App Store 类型 provisioning profile 名（含 iCloud 等 capability，必填）", required: true, type: string }
       export_options:      { description: "ExportOptions.plist 路径",  required: false, type: string,  default: "ExportOptions-iOS.plist" }
       use_xcodegen:        { description: "是否先 xcodegen generate", required: false, type: boolean, default: false }
       runner:              { description: "runner 标签",             required: false, type: string,  default: "macos-15" }
+      xcode_version:       { description: "锁定 Xcode 版本（如 16.4；latest-stable=最新正式版）", required: false, type: string, default: "latest-stable" }
     secrets:
-      DISTRIBUTION_CERTIFICATE_P12:      { required: true }    # Apple Distribution 证书 (.p12) base64
-      DISTRIBUTION_CERTIFICATE_PASSWORD: { required: true }
-      APPLE_TEAM_ID:                     { required: true }    # 与 macOS 管线共用
-      ASC_KEY_ID:                        { required: true }    # App Store Connect API Key ID
+      IOS_DIST_CERT_P12:      { required: true }    # Apple Distribution 证书 (.p12) base64
+      IOS_DIST_CERT_PASSWORD: { required: true }
+      APPLE_TEAM_ID:          { required: true }    # 与 macOS 管线共用
+      ASC_KEY_ID:                        { required: true }    # App Store Connect API Key ID（兼作现签 profile 认证）
       ASC_ISSUER_ID:                     { required: true }    # ASC API Issuer ID
       ASC_API_KEY_P8:                    { required: true }    # AuthKey_xxx.p8 的 base64
-      IOS_PROVISIONING_PROFILE_BASE64:   { required: true }    # App Store 类型 profile (.mobileprovision) base64
 
 permissions:
   contents: write          # 用于 workflow_dispatch 时给私有源码仓库打 tag
@@ -42,6 +41,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: ${{ inputs.xcode_version }}
 
       - name: Install xcodegen
         if: ${{ inputs.use_xcodegen }}
@@ -67,8 +71,8 @@ jobs:
 
       - name: Install certificate
         env:
-          P12_BASE64:   ${{ secrets.DISTRIBUTION_CERTIFICATE_P12 }}
-          P12_PASSWORD: ${{ secrets.DISTRIBUTION_CERTIFICATE_PASSWORD }}
+          P12_BASE64:   ${{ secrets.IOS_DIST_CERT_P12 }}
+          P12_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
         run: |
           set -euo pipefail
           KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
@@ -82,7 +86,7 @@ jobs:
           DECODED_BYTES=$(wc -c < "$CERT_PATH" | tr -d ' ')
           echo "解码后 .p12 字节数: $DECODED_BYTES"
           if [ "$DECODED_BYTES" -lt 100 ]; then
-            echo "::error::DISTRIBUTION_CERTIFICATE_P12 解码后过小($DECODED_BYTES B)——secret 值缺失或损坏"; exit 1
+            echo "::error::IOS_DIST_CERT_P12 解码后过小($DECODED_BYTES B)——secret 值缺失或损坏"; exit 1
           fi
           # 导入身份(cert+key)。不加 -t cert，避免对 identity 导入的类型干扰。
           security import "$CERT_PATH" -P "$P12_PASSWORD" -A -f pkcs12 -k "$KEYCHAIN_PATH"
@@ -92,20 +96,7 @@ jobs:
           echo "== 钥匙串内签名身份 =="
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
 
-      # App Store 类型 provisioning profile（含 iCloud 等 capability）。iOS 扩展名为 .mobileprovision。
-      - name: Install provisioning profile
-        env:
-          PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
-        run: |
-          set -euo pipefail
-          TMP="$RUNNER_TEMP/profile.mobileprovision"
-          printf '%s' "$PROFILE_BASE64" | base64 --decode > "$TMP"
-          UUID=$(security cms -D -i "$TMP" 2>/dev/null | plutil -extract UUID raw -)
-          echo "安装 provisioning profile: $UUID"
-          D="$HOME/Library/MobileDevice/Provisioning Profiles"
-          mkdir -p "$D"; cp "$TMP" "$D/$UUID.mobileprovision"
-
-      # App Store Connect API Key：altool 按 Key ID 从该固定目录读取 .p8
+      # App Store Connect API Key：altool 上传 + 现签 profile 都用它。放固定目录供 -authenticationKeyPath 读取。
       - name: Setup App Store Connect API key
         env:
           ASC_KEY_ID:     ${{ secrets.ASC_KEY_ID }}
@@ -120,33 +111,55 @@ jobs:
           if [ "$BYTES" -lt 100 ]; then
             echo "::error::ASC_API_KEY_P8 解码后过小($BYTES B)——secret 值缺失或损坏"; exit 1
           fi
+          echo "ASC_KEY_PATH=$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8" >> "$GITHUB_ENV"
+
+      # 缓存 SwiftPM 依赖，避免每次重新拉取
+      - name: Cache SwiftPM
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/org.swift.swiftpm
+          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: ${{ runner.os }}-spm-
 
       - name: Resolve dependencies
         run: xcodebuild -resolvePackageDependencies -project "$PROJECT" -scheme "$SCHEME"
 
       - name: Archive
         env:
-          VERSION:           ${{ steps.version.outputs.version }}
-          BUILD_NUMBER:      ${{ steps.version.outputs.build_number }}
-          PROFILE_SPECIFIER: ${{ inputs.provisioning_profile_specifier }}
+          VERSION:       ${{ steps.version.outputs.version }}
+          BUILD_NUMBER:  ${{ steps.version.outputs.build_number }}
+          ASC_KEY_ID:    ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
           set -euo pipefail
+          # 自动签名 + -allowProvisioningUpdates：Xcode 用 API Key 现签/续期 profile
+          # （含 iCloud 等受限 entitlement），无需手动维护 provisioning profile。
           xcodebuild archive \
             -project "$PROJECT" -scheme "$SCHEME" \
             -archivePath build/$APP_NAME.xcarchive \
             -destination 'generic/platform=iOS' \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
-            CODE_SIGN_STYLE=Manual \
-            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_SPECIFIER" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            CODE_SIGN_STYLE=Automatic \
             DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
             MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER"
 
       - name: Export IPA
+        env:
+          ASC_KEY_ID:    ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
+          set -euo pipefail
           xcodebuild -exportArchive \
             -archivePath build/$APP_NAME.xcarchive \
             -exportPath build/export \
-            -exportOptionsPlist "$EXPORT_OPTIONS"
+            -exportOptionsPlist "$EXPORT_OPTIONS" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
           # 导出的 .ipa 文件名取决于 scheme/产物名，统一找出来供上传用
           IPA_PATH=$(find build/export -maxdepth 1 -name '*.ipa' | head -n1)
           [ -n "$IPA_PATH" ] || { echo "::error::未找到导出的 .ipa"; exit 1; }
